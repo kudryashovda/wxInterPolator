@@ -55,7 +55,7 @@ IMPLEMENT_APP(MyApp)
 
 MainFrame::MainFrame(const wxString &title):wxFrame(NULL, wxID_ANY, title) {
     CreateStatusBar(1);
-    SetStatusText(wxT("To start press 'Select File' button"), 0);
+    SetStatusText(wxT("To start enter or paste x,y data to the left field"), 0);
 
     pnl = new wxPanel(this, wxID_ANY);
 
