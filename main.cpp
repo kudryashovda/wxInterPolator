@@ -1,18 +1,11 @@
+#include "interpolator.h"
+
 #include <wx/wx.h>
-#include <algorithm>
 #include <vector>
 #include <string>
 #include <iostream>
-#include <algorithm>
 
 using namespace std;
-
-struct Coord {
-    double x;
-    double y;
-};
-
-void tokenizer(vector<string>& vs, string str, string delim);
 
 class MyApp : public wxApp {
 public:
@@ -22,10 +15,6 @@ public:
 class MainFrame : public wxFrame {
 public:
     explicit MainFrame(const wxString &title);
-    void getDataFromMemo(const wxTextCtrl& memo, const string& delim);
-    vector<Coord> interpolate(double first, double last, double step);
-    void showInterpolatedData(wxTextCtrl& memo);
-
 private:
     wxPanel *pnl;
     wxButton *btnInterpolate;
@@ -33,14 +22,12 @@ private:
     wxTextCtrl *edtFirst, *edtLast, *edtStep;
     wxTextCtrl *memoInput, *memoOutput;
 
+private:
     wxString removeEndZeros(wxString& st);
+    void showInterpolatedData(wxTextCtrl* memo, const vector<Coord>& vInterpolated);
 
     void OnPressBtnInterpolate(wxMouseEvent& event);
-    void onClickTextCtrl(wxMouseEvent& event); // one foo for all edits
-
-private:
-    vector<Coord> m_vInput;
-    vector<Coord> m_vInterpolated;
+    void onClickTextCtrl(wxMouseEvent& event);
 };
 
 IMPLEMENT_APP(MyApp)
@@ -51,7 +38,6 @@ IMPLEMENT_APP(MyApp)
 
     return true;
 }
-
 
 MainFrame::MainFrame(const wxString &title):wxFrame(NULL, wxID_ANY, title) {
     CreateStatusBar(1);
@@ -107,52 +93,8 @@ MainFrame::MainFrame(const wxString &title):wxFrame(NULL, wxID_ANY, title) {
     Centre();
 }
 
-void MainFrame::getDataFromMemo(const wxTextCtrl& memo, const string& delim) {
-    if(memo.GetValue() == ""s) {
-        SetStatusText("No data was loaded");
-
-        return;
-    }
-
-    m_vInput.clear();
-
-    for(auto lineNo = 0; lineNo < memo.GetNumberOfLines(); ++lineNo) {
-        vector<string> vs; // keep two string values of x, y
-
-        tokenizer(vs, memo.GetLineText(lineNo).ToStdString(), delim);
-
-        if(vs.size() == 0) continue;
-
-        try {
-            double x = stof(vs[0]);
-            double y = stof(vs[1]);
-
-            m_vInput.push_back({x,y});
-        } catch(...) {
-            continue;
-        }
-    }
-}
-
-void tokenizer(vector<string>& vs, string str, string delim) {
-    size_t pos = 0;
-    string token;
-    vs.clear();
-
-    if(str.find(delim) == string::npos) return;  // if no delim string - exit
-
-    do {
-        pos = str.find_first_of(delim);
-        token = str.substr(0,pos);
-        vs.push_back(token);
-        str = str.substr(pos+1);
-    } while(pos != string::npos);
-}
-
 void MainFrame::OnPressBtnInterpolate(wxMouseEvent& event) {
     event.Skip(); // if skip it - bugs with text selection appear
-
-    getDataFromMemo(*memoInput, "\t"s);
 
     wxString tFirst = edtFirst->GetValue();
     wxString tLast = edtLast->GetValue();
@@ -167,58 +109,26 @@ void MainFrame::OnPressBtnInterpolate(wxMouseEvent& event) {
         return;
     }
 
-    m_vInterpolated = interpolate(dFirst, dLast, dStep);
+    wxString wxMemoText = MainFrame::memoInput->GetValue();
 
-    showInterpolatedData(*memoOutput);
+    Interpolator interpolator(dFirst, dLast, dStep, std::string(wxMemoText.mb_str()), '\n', '\t');
+
+    showInterpolatedData(memoOutput, interpolator.getInterpolatedData());
 }
 
-vector<Coord> MainFrame::interpolate(double first, double last, double step) {
-    if (m_vInput.size() < 2) {
-        return {};
-    }
-    
-    vector<Coord> v_sorted(m_vInput.begin(), m_vInput.end());
-
-    sort(v_sorted.begin(), v_sorted.end(), [](const Coord &a, const Coord &b) {
-        return a.x < b.x;
-    });
-
-    if(first < v_sorted.front().x) first = v_sorted.front().x;  // check for lower boundary
-
-    if(last > v_sorted.back().x) last = v_sorted.back().x;  // check for upper boundary
-
-    size_t steps = 1 + (last - first) / step;
-
-    size_t it = 1;
-
-    vector<Coord> v_interpolated;
-
-    for(size_t i = 0; i < steps; ++i) {
-        double x = first + i * step;
-
-        while(x > v_sorted[it].x) ++it;  // danger! Upper the range check was already done
-
-        double k = 0, b = 0; // slope and intercept
-
-        try {
-            k = (v_sorted[it].y - v_sorted[it-1].y) / (v_sorted[it].x - v_sorted[it-1].x);
-            b = v_sorted[it-1].y - k * v_sorted[it-1].x;
-        } catch(...) {};
-
-        v_interpolated.push_back({x, (k*x + b)});
+void MainFrame::showInterpolatedData(wxTextCtrl* memo, const vector<Coord>& datas) {
+    if(datas.empty()) {
+        memo->SetValue("No interpolated data was found");
+        return;
     }
 
-    return v_interpolated;
-}
-
-void MainFrame::showInterpolatedData(wxTextCtrl& memo) {
     wxString line = ""s;
     wxString x = ""s;
     wxString y = ""s;
 
     wxString longString = ""s;
 
-    for(const auto& it : m_vInterpolated) {
+    for(const auto& it : datas) {
         x = to_string(it.x);
         x = removeEndZeros(x); // utils.h
 
@@ -229,15 +139,18 @@ void MainFrame::showInterpolatedData(wxTextCtrl& memo) {
         longString += line;
     }
 
-    memo.SetValue(longString);
+    memo->SetValue(longString);
 }
 
 wxString MainFrame::removeEndZeros(wxString& st) {
     size_t end = st.find_last_not_of('0') + 1 ;
     size_t point_pos = st.find_last_of('.') + 1 ;
 
-    if(end == point_pos) return st.erase(end+1);
-    else return st.erase(end) ;
+    if(end == point_pos) {
+        return st.erase(end+1);
+    } else {
+        return st.erase(end);
+    }
 }
 
 // If entered any char then the field is cleared
